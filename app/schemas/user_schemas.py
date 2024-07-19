@@ -1,5 +1,5 @@
 from builtins import ValueError, any, bool, str
-from pydantic import BaseModel, EmailStr, Field, validator, root_validator
+from pydantic import BaseModel, EmailStr, Field, validator, root_validator, model_validator
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -34,19 +34,6 @@ class UserBase(BaseModel):
 
     _validate_urls = validator('profile_picture_url', 'linkedin_profile_url', 'github_profile_url', pre=True, allow_reuse=True)(validate_url)
 
-    @root_validator(pre=True)
-    def validate_profile(cls, values):
-        is_professional = values.get('is_professional')
-        professional_status_updated_at = values.get('professional_status_updated_at')
-        
-        if is_professional is not None and not isinstance(is_professional, bool):
-            raise ValueError("is_professional must be a boolean")
-        
-        if is_professional and not professional_status_updated_at:
-            raise ValueError("professional_status_updated_at must be set if is_professional is True")
-        
-        return values
- 
     class Config:
         from_attributes = True
 
@@ -73,6 +60,18 @@ class UserUpdate(UserBase):
     def check_at_least_one_value(cls, values):
         if not any(values.values()):
             raise ValueError("At least one field must be provided for update")
+        return values
+    
+    @validator('is_professional', pre=True, always=True)
+    def check_boolean(cls, v):
+        if v is not None and not isinstance(v, bool):
+            raise ValueError('value is not a valid boolean')
+        return v
+
+    @model_validator(mode='after')
+    def validate_profile(cls, values):
+        if values.is_professional and values.professional_status_updated_at is None:
+            raise ValueError("professional_status_updated_at must be set if is_professional is True")
         return values
 
 class UserResponse(UserBase):
