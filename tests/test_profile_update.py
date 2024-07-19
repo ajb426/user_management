@@ -118,3 +118,33 @@ async def test_upgrade_user_unauthorized(db_session: AsyncSession, current_user:
 
     assert response.status_code == 403
     assert response_data["detail"] == "Not authorized"
+
+@pytest.mark.asyncio
+async def test_update_profile_validation(async_client, current_user):
+    # Create a valid token for the current_user
+    access_token = create_access_token(data={"sub": str(current_user.id), "role": current_user.role.name})
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    # Test invalid boolean value for is_professional
+    response = await async_client.put("/profile", json={
+        "first_name": "UpdatedFirstName",
+        "last_name": "UpdatedLastName",
+        "bio": "Updated bio",
+        "is_professional": "not_a_boolean"
+    }, headers=headers)
+
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "is_professional must be a boolean" in str(response_data)
+
+    # Test missing professional_status_updated_at when is_professional is True
+    response = await async_client.put("/profile", json={
+        "first_name": "UpdatedFirstName",
+        "last_name": "UpdatedLastName",
+        "bio": "Updated bio",
+        "is_professional": True
+    }, headers=headers)
+
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "professional_status_updated_at must be set if is_professional is True" in str(response_data)
