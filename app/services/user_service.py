@@ -1,7 +1,7 @@
 from builtins import Exception, bool, classmethod, int, str
 from datetime import datetime, timezone
 import secrets
-from typing import Optional, Dict, List
+from typing import Any, Dict, Optional, List
 from pydantic import ValidationError
 from sqlalchemy import func, null, update, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -14,6 +14,9 @@ from uuid import UUID
 from app.services.email_service import EmailService
 from app.models.user_model import UserRole
 import logging
+from sqlalchemy.orm import joinedload
+from sqlalchemy.exc import IntegrityError
+
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -38,7 +41,11 @@ class UserService:
 
     @classmethod
     async def get_by_id(cls, session: AsyncSession, user_id: UUID) -> Optional[User]:
-        return await cls._fetch_user(session, id=user_id)
+        query = select(User).filter(User.id == user_id)
+        result = await session.execute(query)
+        user = result.scalars().first()
+        return user
+
 
     @classmethod
     async def get_by_nickname(cls, session: AsyncSession, nickname: str) -> Optional[User]:
@@ -73,26 +80,34 @@ class UserService:
         except ValidationError as e:
             logger.error(f"Validation error during user creation: {e}")
             return None
-
+    
     @classmethod
-    async def update(cls, session: AsyncSession, user_id: UUID, update_data: Dict[str, str]) -> Optional[User]:
+    async def update(cls, session: AsyncSession, user_id: UUID, update_data: Dict[str, Any]) -> Optional[User]:
         try:
-            # validated_data = UserUpdate(**update_data).dict(exclude_unset=True)
             validated_data = UserUpdate(**update_data).model_dump(exclude_unset=True)
 
             if 'password' in validated_data:
                 validated_data['hashed_password'] = hash_password(validated_data.pop('password'))
+            
+            logger.debug(f"Executing update query with values: {validated_data}")
             query = update(User).where(User.id == user_id).values(**validated_data).execution_options(synchronize_session="fetch")
-            await cls._execute_query(session, query)
-            updated_user = await cls.get_by_id(session, user_id)
+            
+            await session.execute(query)
+            await session.commit()
+
+            updated_user = await UserService.get_by_id(session, user_id)
             if updated_user:
-                session.refresh(updated_user)  # Explicitly refresh the updated user object
+                await session.refresh(updated_user)  # Explicitly refresh the updated user object
                 logger.info(f"User {user_id} updated successfully.")
                 return updated_user
             else:
                 logger.error(f"User {user_id} not found after update attempt.")
             return None
-        except Exception as e:  # Broad exception handling for debugging
+        except IntegrityError as e:
+            logger.error(f"Database error: {e}")
+            await session.rollback()
+            raise e
+        except Exception as e:
             logger.error(f"Error during user update: {e}")
             return None
 

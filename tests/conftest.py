@@ -42,8 +42,8 @@ fake = Faker()
 settings = get_settings()
 TEST_DATABASE_URL = settings.database_url.replace("postgresql://", "postgresql+asyncpg://")
 engine = create_async_engine(TEST_DATABASE_URL, echo=settings.debug)
-AsyncTestingSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-AsyncSessionScoped = scoped_session(AsyncTestingSessionLocal)
+AsyncSessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+AsyncSessionScoped = scoped_session(AsyncSessionLocal)
 
 
 @pytest.fixture
@@ -78,17 +78,14 @@ async def setup_database():
         await conn.run_sync(Base.metadata.create_all)
     yield
     async with engine.begin() as conn:
-        # you can comment out this line during development if you are debugging a single test
-         await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
 @pytest.fixture(scope="function")
-async def db_session(setup_database):
-    async with AsyncSessionScoped() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+async def db_session():
+    async with AsyncSessionLocal() as session:
+        yield session
+        await session.close()
 
 @pytest.fixture(scope="function")
 async def locked_user(db_session):
@@ -238,3 +235,68 @@ def email_service():
         mock_service.send_verification_email.return_value = None
         mock_service.send_user_email.return_value = None
         return mock_service
+
+
+@pytest.fixture(scope="function")
+async def temp_db_session():
+    temp_engine = create_async_engine("sqlite+aiosqlite:///./temp_test.db", future=True)
+    TestingTempSessionLocal = sessionmaker(
+        bind=temp_engine,
+        class_=AsyncSession,
+        expire_on_commit=False
+    )
+
+    async with temp_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with TestingTempSessionLocal() as session:
+        yield session
+
+    async with temp_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await temp_engine.dispose()
+
+@pytest.fixture(scope="function")
+async def current_user(db_session):
+    user_data = {
+        "nickname": "test_user",
+        "email": "user@example.com",
+        "first_name": "User",
+        "last_name": "Example",
+        "hashed_password": "hashed_password",
+        "role": UserRole.ANONYMOUS,
+        "is_locked": False,
+        "email_verified": True,
+        "bio": "A short bio",
+        "location": "San Francisco"
+    }
+    user = User(**user_data)
+    db_session.add(user)
+    await db_session.commit()
+    return user
+
+@pytest.fixture(scope="function")
+async def temp_current_user(temp_db_session):
+    user_data = {
+        "nickname": "test_user",
+        "email": "user@example.com",
+        "first_name": "User",
+        "last_name": "Example",
+        "hashed_password": "hashed_password",
+        "role": UserRole.ANONYMOUS,
+        "is_locked": False,
+        "email_verified": True,
+        "bio": "A short bio",
+        "location": "San Francisco"
+    }
+    user = User(**user_data)
+    temp_db_session.add(user)
+    await temp_db_session.commit()
+    return user
+
+@pytest.fixture(scope="function")
+async def temp_async_client(temp_db_session):
+    async with AsyncClient(app=app, base_url="http://testserver") as client:
+        app.dependency_overrides[get_db] = lambda: temp_db_session
+        yield client
+    app.dependency_overrides.clear()

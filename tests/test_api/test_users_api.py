@@ -5,7 +5,7 @@ from app.main import app
 from app.models.user_model import User, UserRole
 from app.utils.nickname_gen import generate_nickname
 from app.utils.security import hash_password
-from app.services.jwt_service import decode_token  # Import your FastAPI app
+from app.services.jwt_service import decode_token, create_access_token  # Import your FastAPI app
 
 # Example of a test function using the async_client fixture
 @pytest.mark.asyncio
@@ -54,11 +54,21 @@ async def test_update_user_email_access_allowed(async_client, admin_user, admin_
 
 @pytest.mark.asyncio
 async def test_delete_user(async_client, admin_user, admin_token):
+   async def test_delete_user(async_client, admin_user, admin_token):
     headers = {"Authorization": f"Bearer {admin_token}"}
+    
+    # Deleting the user
     delete_response = await async_client.delete(f"/users/{admin_user.id}", headers=headers)
+    print(f"Delete response status: {delete_response.status_code}")
     assert delete_response.status_code == 204
-    # Verify the user is deleted
+    
+    # Generating a new token for verification if necessary
+    new_admin_token = create_access_token(data={"sub": admin_user.email, "role": admin_user.role.name})
+    headers = {"Authorization": f"Bearer {new_admin_token}"}
+    
+    # Verifying the user is deleted
     fetch_response = await async_client.get(f"/users/{admin_user.id}", headers=headers)
+    print(f"Fetch response status: {fetch_response.status_code}, body: {fetch_response.json()}")
     assert fetch_response.status_code == 404
 
 @pytest.mark.asyncio
@@ -69,6 +79,8 @@ async def test_create_user_duplicate_email(async_client, verified_user):
         "role": UserRole.ADMIN.name
     }
     response = await async_client.post("/register/", json=user_data)
+    response_data = response.json()
+    print("Response JSON:", response_data)
     assert response.status_code == 400
     assert "Email already exists" in response.json().get("detail", "")
 
