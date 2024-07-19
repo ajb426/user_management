@@ -120,7 +120,7 @@ async def test_upgrade_user_unauthorized(db_session: AsyncSession, current_user:
     assert response_data["detail"] == "Not authorized"
 
 @pytest.mark.asyncio
-async def test_update_profile_validation(async_client, current_user):
+async def test_update_profile_validation(async_client: AsyncClient, current_user: User):
     # Create a valid token for the current_user
     access_token = create_access_token(data={"sub": str(current_user.id), "role": current_user.role.name})
     headers = {"Authorization": f"Bearer {access_token}"}
@@ -135,7 +135,7 @@ async def test_update_profile_validation(async_client, current_user):
 
     assert response.status_code == 422
     response_data = response.json()
-    assert "is_professional must be a boolean" in str(response_data)
+    assert "value is not a valid boolean" in str(response_data), "Expected boolean validation error"
 
     # Test missing professional_status_updated_at when is_professional is True
     response = await async_client.put("/profile", json={
@@ -147,4 +147,4 @@ async def test_update_profile_validation(async_client, current_user):
 
     assert response.status_code == 422
     response_data = response.json()
-    assert "professional_status_updated_at must be set if is_professional is True" in str(response_data)
+    assert "professional_status_updated_at must be set if is_professional is True" in str(response_data), "Expected validation error for missing professional_status_updated_at"
