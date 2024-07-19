@@ -33,6 +33,19 @@ class UserBase(BaseModel):
     role: UserRole
 
     _validate_urls = validator('profile_picture_url', 'linkedin_profile_url', 'github_profile_url', pre=True, allow_reuse=True)(validate_url)
+
+    @root_validator(pre=True)
+    def validate_profile(cls, values):
+        is_professional = values.get('is_professional')
+        professional_status_updated_at = values.get('professional_status_updated_at')
+        
+        if is_professional is not None and not isinstance(is_professional, bool):
+            raise ValueError("is_professional must be a boolean")
+        
+        if is_professional and not professional_status_updated_at:
+            raise ValueError("professional_status_updated_at must be set if is_professional is True")
+        
+        return values
  
     class Config:
         from_attributes = True
